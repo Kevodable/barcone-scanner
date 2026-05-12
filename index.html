@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Barcode Scanner</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+  background: #0a0a0a; color: #f0f0f0;
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; padding: 20px;
+}
+.panel { width: 100%; max-width: 480px; }
+h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.5px; margin-bottom: 6px; text-align: center; }
+.sub { font-size: 13px; color: #555; margin-bottom: 28px; text-align: center; }
+.mode-select { display: flex; gap: 10px; margin-bottom: 28px; }
+.mode-btn {
+  flex: 1; padding: 16px 12px; border-radius: 14px;
+  border: 1.5px solid #2a2a2a; background: #111;
+  color: #888; font-size: 14px; font-weight: 500; cursor: pointer;
+  transition: all 0.15s; display: flex; flex-direction: column;
+  align-items: center; gap: 6px;
+}
+.mode-btn .icon { font-size: 26px; }
+.mode-btn:hover { border-color: #444; color: #ccc; }
+.mode-btn.active { border-color: #4ade80; background: #0d2010; color: #4ade80; }
+.card { background: #111; border: 1px solid #1e1e1e; border-radius: 16px; padding: 22px; margin-bottom: 14px; }
+.card-label { font-size: 11px; color: #555; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+.room-row { display: flex; gap: 8px; }
+input[type="text"] {
+  flex: 1; background: #0d0d0d; border: 1px solid #2a2a2a;
+  border-radius: 10px; padding: 11px 14px; color: #f0f0f0;
+  font-size: 18px; font-weight: 600; letter-spacing: 3px;
+  font-family: 'SF Mono', 'Menlo', monospace; outline: none;
+  text-transform: uppercase;
+}
+input[type="text"]::placeholder { font-size: 14px; letter-spacing: 1px; font-weight: 400; color: #333; }
+input[type="text"]:focus { border-color: #4ade80; }
+.btn {
+  padding: 11px 20px; border-radius: 10px; border: none;
+  font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.15s;
+  white-space: nowrap;
+}
+.btn-green { background: #4ade80; color: #000; }
+.btn-green:hover { background: #22c55e; }
+.btn-green:active { transform: scale(0.97); }
+.btn-gray { background: #1a1a1a; color: #aaa; border: 1px solid #2a2a2a; }
+.btn-gray:hover { background: #222; color: #f0f0f0; }
+.status-bar {
+  display: flex; align-items: center; gap: 9px;
+  padding: 11px 14px; border-radius: 10px; font-size: 13px;
+  margin-bottom: 14px;
+}
+.status-bar.waiting { background: #1c1500; color: #f59e0b; border: 1px solid #2a1f00; }
+.status-bar.connected { background: #0a1f0f; color: #4ade80; border: 1px solid #0d3018; }
+.status-bar.error { background: #1c0a0a; color: #f87171; border: 1px solid #2a1010; }
+.status-bar.hidden { display: none; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.dot.pulse { animation: pulse 1.4s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.2} }
+.room-code-big {
+  font-size: 40px; font-weight: 700; letter-spacing: 8px;
+  color: #4ade80; text-align: center;
+  font-family: 'SF Mono', 'Menlo', monospace; margin: 10px 0 16px;
+}
+.btn-row { display: flex; gap: 8px; }
+#preview-wrap {
+  width: 100%; border-radius: 14px; overflow: hidden;
+  background: #000; aspect-ratio: 4/3; position: relative;
+}
+#video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scan-overlay {
+  position: absolute; inset: 0; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+}
+.scan-frame {
+  width: 65%; aspect-ratio: 2/1; position: relative;
+}
+.scan-frame::before, .scan-frame::after,
+.scan-frame > span::before, .scan-frame > span::after {
+  content: ''; position: absolute; width: 20px; height: 20px;
+  border-color: #4ade80; border-style: solid;
+}
+.scan-frame::before { top: 0; left: 0; border-width: 2px 0 0 2px; border-radius: 2px 0 0 0; }
+.scan-frame::after { top: 0; right: 0; border-width: 2px 2px 0 0; border-radius: 0 2px 0 0; }
+.scan-frame > span::before { bottom: 0; left: 0; border-width: 0 0 2px 2px; border-radius: 0 0 0 2px; }
+.scan-frame > span::after { bottom: 0; right: 0; border-width: 0 2px 2px 0; border-radius: 0 0 2px 0; }
+.scan-line-anim {
+  position: absolute; left: 5%; right: 5%; height: 1.5px;
+  background: #4ade80; box-shadow: 0 0 6px #4ade80;
+  animation: scanmove 2s ease-in-out infinite;
+  top: 50%;
+}
+@keyframes scanmove { 0%{top:15%} 100%{top:85%} }
+.flash { position: absolute; inset: 0; background: rgba(74,222,128,0.18); opacity: 0; transition: opacity 0.1s; border-radius: 14px; }
+.last-code {
+  font-size: 26px; font-weight: 700; letter-spacing: -0.5px;
+  color: #4ade80; text-align: center; padding: 6px 0;
+  word-break: break-all; font-family: 'SF Mono', 'Menlo', monospace;
+}
+.scan-list { max-height: 300px; overflow-y: auto; }
+.scan-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 0; border-bottom: 1px solid #181818;
+  animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.scan-item:last-child { border-bottom: none; }
+.scan-code-text { font-size: 15px; font-weight: 600; font-family: 'SF Mono','Menlo',monospace; flex: 1; }
+.scan-ts { font-size: 11px; color: #3a3a3a; flex-shrink: 0; }
+.copy-btn {
+  background: #181818; border: 1px solid #252525; border-radius: 6px;
+  color: #555; font-size: 11px; padding: 3px 9px; cursor: pointer; flex-shrink: 0;
+}
+.copy-btn:hover { color: #f0f0f0; background: #222; }
+.copy-btn.ok { color: #4ade80; border-color: #4ade80; }
+.empty { text-align: center; padding: 28px; color: #333; font-size: 13px; }
+.hint { font-size: 11px; color: #3a3a3a; text-align: center; margin-top: 8px; }
+#scanner-section, #receiver-section { display: none; }
+</style>
+</head>
+<body>
+<div class="panel">
+  <h1>📡 Barcode Scanner</h1>
+  <p class="sub">iPhone scansiona → Mac riceve, in tempo reale</p>
+
+  <div class="mode-select">
+    <button class="mode-btn" id="btn-iphone" onclick="setMode('scanner')">
+      <span class="icon">📷</span>iPhone
+    </button>
+    <button class="mode-btn" id="btn-mac" onclick="setMode('receiver')">
+      <span class="icon">🖥️</span>Mac
+    </button>
+  </div>
+
+  <!-- IPHONE SCANNER -->
+  <div id="scanner-section">
+    <div class="card">
+      <div class="card-label">Codice stanza</div>
+      <div class="room-row">
+        <input type="text" id="room-input" placeholder="Es: AB12C" maxlength="5" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')">
+        <button class="btn btn-green" onclick="connectScanner()">Vai</button>
+      </div>
+      <p class="hint">Stesso codice mostrato sul Mac</p>
+    </div>
+
+    <div id="scan-status" class="status-bar hidden waiting">
+      <span class="dot pulse"></span>
+      <span id="scan-status-txt">Connessione...</span>
+    </div>
+
+    <div class="card" id="cam-card" style="display:none">
+      <div id="preview-wrap">
+        <video id="video" autoplay muted playsinline></video>
+        <div class="scan-overlay">
+          <div class="scan-frame"><span></span></div>
+          <div class="scan-line-anim"></div>
+        </div>
+        <div class="flash" id="flash"></div>
+      </div>
+      <p class="hint" style="margin-top:10px">Inquadra il barcode — automatico</p>
+    </div>
+
+    <div class="card" id="last-card" style="display:none">
+      <div class="card-label">Ultimo scansionato</div>
+      <div class="last-code" id="last-code">—</div>
+    </div>
+  </div>
+
+  <!-- MAC RECEIVER -->
+  <div id="receiver-section">
+    <div class="card">
+      <div class="card-label">Il tuo codice stanza</div>
+      <div class="room-code-big" id="room-display">—</div>
+      <p class="hint" style="margin-bottom:16px">Inseriscilo sull'iPhone per connettersi</p>
+      <div class="btn-row">
+        <button class="btn btn-green" style="flex:1" onclick="startReceiver()">Avvia</button>
+        <button class="btn btn-gray" onclick="newRoom()">↻ Nuovo</button>
+      </div>
+    </div>
+
+    <div id="recv-status" class="status-bar hidden waiting">
+      <span class="dot pulse"></span>
+      <span id="recv-status-txt">In attesa...</span>
+    </div>
+
+    <div class="card" id="recv-card" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div class="card-label" style="margin:0">Ricevuti</div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-gray" style="padding:4px 10px;font-size:11px" onclick="copyAll()">Copia tutti</button>
+          <button class="btn btn-gray" style="padding:4px 10px;font-size:11px" onclick="clearList()">Svuota</button>
+        </div>
+      </div>
+      <div class="scan-list" id="scan-list">
+        <div class="empty">In attesa di scansioni...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── CONFIG ──────────────────────────────────────────────
+const API_URL = 'https://api.anthropic.com/v1/messages';
+const MODEL = 'claude-sonnet-4-20250514';
+// Uses window.ANTHROPIC_API_KEY injected at runtime, or prompts user
+// ────────────────────────────────────────────────────────
+
+let mode = null;
+let roomCode = makeRoom();
+let polling = null;
+let lastSeenId = null;
+let scans = [];
+let codeReader = null;
+let apiKey = null;
+
+function makeRoom() {
+  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from({length: 5}, () => c[Math.floor(Math.random()*c.length)]).join('');
+}
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('btn-iphone').classList.toggle('active', m === 'scanner');
+  document.getElementById('btn-mac').classList.toggle('active', m === 'receiver');
+  document.getElementById('scanner-section').style.display = m === 'scanner' ? 'block' : 'none';
+  document.getElementById('receiver-section').style.display = m === 'receiver' ? 'block' : 'none';
+  if (m === 'receiver') document.getElementById('room-display').textContent = roomCode;
+}
+
+function newRoom() {
+  if (polling) { clearInterval(polling); polling = null; }
+  roomCode = makeRoom();
+  document.getElementById('room-display').textContent = roomCode;
+  document.getElementById('recv-status').className = 'status-bar hidden';
+  document.getElementById('recv-card').style.display = 'none';
+  lastSeenId = null;
+}
+
+// ── API KEY ──────────────────────────────────────────────
+async function getApiKey() {
+  if (apiKey) return apiKey;
+  const k = localStorage.getItem('bscan_key');
+  if (k) { apiKey = k; return k; }
+  const input = prompt('Incolla la tua Anthropic API key (inizia con sk-ant-):\n\nTrovala su console.anthropic.com — verrà salvata solo su questo browser.');
+  if (!input || !input.startsWith('sk-')) { alert('API key non valida.'); return null; }
+  apiKey = input.trim();
+  localStorage.setItem('bscan_key', apiKey);
+  return apiKey;
+}
+
+// ── RELAY via Anthropic API ──────────────────────────────
+// We use Claude as a key-value store via a simple convention:
+// SEND: ask Claude to "store" a barcode for a room
+// POLL: ask Claude to "retrieve" the latest barcode for a room
+// We use conversation IDs stored in localStorage per room
+
+async function sendBarcode(room, code) {
+  const key = await getApiKey();
+  if (!key) return false;
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 64,
+        system: 'You are a barcode relay. When given a message in format "STORE room:CODE value:BARCODE ts:TIMESTAMP", respond only with: OK',
+        messages: [{ role: 'user', content: `STORE room:${room} CODE:${code} ts:${Date.now()}` }]
+      })
+    });
+    if (res.ok) {
+      // Save to localStorage as the relay mechanism
+      const entry = { code, ts: Date.now(), id: Math.random().toString(36).slice(2) };
+      const key2 = `bscan_${room}`;
+      const existing = JSON.parse(localStorage.getItem(key2) || '[]');
+      existing.unshift(entry);
+      if (existing.length > 100) existing.length = 100;
+      localStorage.setItem(key2, JSON.stringify(existing));
+      // Also broadcast via BroadcastChannel if same machine
+      try { new BroadcastChannel('barcode_relay').postMessage({ room, ...entry }); } catch(e) {}
+      return true;
+    }
+  } catch(e) {}
+  return false;
+}
+
+// ── SMARTER RELAY: use localStorage + BroadcastChannel for same-machine
+// use a shared "relay server" via Anthropic for cross-device
+// The trick: store barcodes in a shared localStorage key using
+// the Anthropic API response as a "ping" to trigger cross-origin storage
+// 
+// REAL SOLUTION: use a free public relay
+// We'll use https://api.anthropic.com with system prompt as KV store
+// by encoding room+barcode in the user message and storing result client-side
+// For cross-device, we use a simple polling approach with a public pastebin-style endpoint
+
+// Actually, let's use a dead-simple approach: 
+// Store in a free public KV: jsonbin.io (no auth for read, create bins programmatically)
+// OR use a simple approach: encode the barcode in a short-lived public URL
+
+// SIMPLEST WORKING SOLUTION: use ntfy.sh (free pub/sub push notification service)
+// iPhone sends barcode via HTTP POST to ntfy.sh/topic
+// Mac polls ntfy.sh/topic for new messages
+// No auth, no registration, works in any browser
+
+async function publishBarcode(room, code) {
+  const topic = `barcode-p2p-${room.toLowerCase()}`;
+  try {
+    const res = await fetch(`https://ntfy.sh/${topic}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain', 'Title': 'barcode' },
+      body: code
+    });
+    return res.ok;
+  } catch(e) {
+    return false;
+  }
+}
+
+async function pollBarcodes(room, since) {
+  const topic = `barcode-p2p-${room.toLowerCase()}`;
+  const url = since
+    ? `https://ntfy.sh/${topic}/json?poll=1&since=${since}`
+    : `https://ntfy.sh/${topic}/json?poll=1&since=1m`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const text = await res.text();
+    const lines = text.trim().split('\n').filter(Boolean);
+    return lines.map(l => { try { return JSON.parse(l); } catch(e) { return null; } }).filter(Boolean);
+  } catch(e) {
+    return [];
+  }
+}
+
+// ── RECEIVER (Mac) ──────────────────────────────────────
+async function startReceiver() {
+  const status = document.getElementById('recv-status');
+  status.className = 'status-bar waiting';
+  document.getElementById('recv-status-txt').textContent = 'In attesa di connessione iPhone...';
+  document.getElementById('recv-card').style.display = 'block';
+
+  lastSeenId = null;
+  if (polling) clearInterval(polling);
+
+  // First poll to get the latest ID as baseline
+  const initial = await pollBarcodes(roomCode, null);
+  if (initial.length > 0) lastSeenId = initial[initial.length - 1].id;
+
+  polling = setInterval(async () => {
+    const msgs = lastSeenId
+      ? await pollBarcodes(roomCode, lastSeenId)
+      : await pollBarcodes(roomCode, null);
+
+    const newMsgs = lastSeenId
+      ? msgs.filter(m => m.id !== lastSeenId && m.event === 'message')
+      : msgs.filter(m => m.event === 'message');
+
+    if (newMsgs.length > 0) {
+      lastSeenId = newMsgs[newMsgs.length - 1].id;
+      status.className = 'status-bar connected';
+      document.getElementById('recv-status-txt').textContent = '✓ iPhone connesso';
+      newMsgs.forEach(m => {
+        if (m.message) addScan(m.message);
+      });
+    }
+  }, 1500);
+}
+
+// ── SCANNER (iPhone) ────────────────────────────────────
+async function connectScanner() {
+  const room = document.getElementById('room-input').value.trim().toUpperCase();
+  if (room.length < 3) { alert('Inserisci il codice stanza del Mac'); return; }
+
+  const status = document.getElementById('scan-status');
+  status.className = 'status-bar waiting';
+  document.getElementById('scan-status-txt').textContent = 'Avvio fotocamera...';
+
+  // Test connection
+  const ok = await publishBarcode(room, '__ping__');
+  if (!ok) {
+    status.className = 'status-bar error';
+    document.getElementById('scan-status-txt').textContent = 'Errore connessione. Controlla internet.';
+    return;
+  }
+
+  status.className = 'status-bar connected';
+  document.getElementById('scan-status-txt').textContent = '✓ Connesso — avvio fotocamera';
+  document.getElementById('cam-card').style.display = 'block';
+  document.getElementById('last-card').style.display = 'block';
+  startCamera(room);
+}
+
+async function startCamera(room) {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+    });
+    document.getElementById('video').srcObject = stream;
+
+    // Use native BarcodeDetector if available (Safari 17+, Chrome)
+    if ('BarcodeDetector' in window) {
+      startNativeScanner(room, stream);
+    } else {
+      startZXingScanner(room);
+    }
+  } catch(e) {
+    const status = document.getElementById('scan-status');
+    status.className = 'status-bar error';
+    document.getElementById('scan-status-txt').textContent = 'Fotocamera negata — abilita in Impostazioni Safari';
+  }
+}
+
+function startNativeScanner(room, stream) {
+  const detector = new BarcodeDetector({ formats: [
+    'ean_13','ean_8','code_128','code_39','qr_code','data_matrix','upc_a','upc_e','itf','codabar'
+  ]});
+  const video = document.getElementById('video');
+  let lastCode = '', lastTime = 0;
+
+  const scan = async () => {
+    if (video.readyState >= 2) {
+      try {
+        const barcodes = await detector.detect(video);
+        if (barcodes.length > 0) {
+          const code = barcodes[0].rawValue;
+          const now = Date.now();
+          if (code !== lastCode || now - lastTime > 2000) {
+            lastCode = code; lastTime = now;
+            onBarcode(room, code);
+          }
+        }
+      } catch(e) {}
+    }
+    requestAnimationFrame(scan);
+  };
+  requestAnimationFrame(scan);
+}
+
+function startZXingScanner(room) {
+  // Inline minimal ZXing — use dynamic import from CDN as fallback
+  // Since CDN is blocked in file://, we load from a data URI trick
+  // Actually: if we're here, we're being served from a server (ntfy approach requires internet anyway)
+  // So CDN will work
+  const script = document.createElement('script');
+  script.src = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.0/umd/index.min.js';
+  script.onload = () => {
+    const hints = new Map();
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+      ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39,
+      ZXing.BarcodeFormat.QR_CODE, ZXing.BarcodeFormat.UPC_A,
+      ZXing.BarcodeFormat.UPC_E, ZXing.BarcodeFormat.ITF,
+    ]);
+    const reader = new ZXing.BrowserMultiFormatReader(hints);
+    let lastCode = '', lastTime = 0;
+    reader.decodeFromVideoDevice(null, 'video', (result) => {
+      if (!result) return;
+      const code = result.getText();
+      const now = Date.now();
+      if (code !== lastCode || now - lastTime > 2000) {
+        lastCode = code; lastTime = now;
+        onBarcode(room, code);
+      }
+    });
+  };
+  script.onerror = () => {
+    document.getElementById('scan-status').className = 'status-bar error';
+    document.getElementById('scan-status-txt').textContent = 'Errore caricamento scanner. Connetti a internet.';
+  };
+  document.head.appendChild(script);
+}
+
+async function onBarcode(room, code) {
+  document.getElementById('last-code').textContent = code;
+  playBeep();
+  triggerFlash();
+  await publishBarcode(room, code);
+}
+
+// ── SCAN LIST ────────────────────────────────────────────
+function addScan(code) {
+  if (code === '__ping__') return;
+  const ts = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  scans.unshift({ code, ts });
+
+  const list = document.getElementById('scan-list');
+  if (scans.length === 1) list.innerHTML = '';
+
+  const el = document.createElement('div');
+  el.className = 'scan-item';
+  const safe = esc(code);
+  el.innerHTML = `
+    <span class="scan-code-text">${safe}</span>
+    <span class="scan-ts">${ts}</span>
+    <button class="copy-btn" onclick="copyOne('${safe}',this)">copia</button>
+  `;
+  list.insertBefore(el, list.firstChild);
+  flashScreen();
+}
+
+function clearList() {
+  scans = [];
+  document.getElementById('scan-list').innerHTML = '<div class="empty">In attesa di scansioni...</div>';
+}
+
+function copyOne(code, btn) {
+  navigator.clipboard.writeText(code).catch(() => fallbackCopy(code));
+  btn.textContent = '✓'; btn.classList.add('ok');
+  setTimeout(() => { btn.textContent = 'copia'; btn.classList.remove('ok'); }, 1400);
+}
+
+function copyAll() {
+  const text = scans.map(s => s.code).join('\n');
+  navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+}
+
+function fallbackCopy(text) {
+  const t = document.createElement('textarea');
+  t.value = text; document.body.appendChild(t); t.select();
+  document.execCommand('copy'); document.body.removeChild(t);
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ── AUDIO / VISUAL ───────────────────────────────────────
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 1800;
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+    osc.start(); osc.stop(ctx.currentTime + 0.12);
+  } catch(e) {}
+}
+
+function triggerFlash() {
+  const f = document.getElementById('flash');
+  if (!f) return;
+  f.style.opacity = '1';
+  setTimeout(() => f.style.opacity = '0', 180);
+}
+
+function flashScreen() {
+  const f = document.createElement('div');
+  f.style.cssText = 'position:fixed;inset:0;background:rgba(74,222,128,0.07);pointer-events:none;z-index:9999;transition:opacity 0.3s';
+  document.body.appendChild(f);
+  setTimeout(() => { f.style.opacity='0'; setTimeout(()=>f.remove(),300); }, 100);
+}
+</script>
+</body>
+</html>
